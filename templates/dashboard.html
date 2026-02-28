@@ -160,6 +160,7 @@
                                                    value="{{ check.quantity if check else '' }}"
                                                    placeholder="{{ item.min_value|int if item.min_value else '0' }}"
                                                    min="0" step="1"
+                                                   inputmode="numeric" pattern="[0-9]*"
                                                    data-item-name="{{ item.item_name }}"
                                                    data-min-value="{{ item.min_value if item.min_value else 0 }}"
                                                    style="width: 70px; padding: 4px 6px; font-size: 12px;">
@@ -526,6 +527,64 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.style.background = '#ffcc80';
         }
     });
+
+    // Integer-only enforcement for all qty inputs
+    var qtyInputs = document.querySelectorAll('input[type="number"][name^="qty_"]');
+    qtyInputs.forEach(function(input) {
+        // Block non-digit keys (allow navigation keys)
+        input.addEventListener('keydown', function(e) {
+            // Allow: Backspace, Delete, Tab, Escape, Enter
+            if ([8, 46, 9, 27, 13].indexOf(e.keyCode) !== -1 ||
+                // Allow: Home, End, ArrowLeft, ArrowRight
+                (e.keyCode >= 35 && e.keyCode <= 39) ||
+                // Allow: Ctrl/Cmd+A, Ctrl/Cmd+C, Ctrl/Cmd+V, Ctrl/Cmd+X, Ctrl/Cmd+Z
+                ((e.ctrlKey || e.metaKey) && [65, 67, 86, 88, 90].indexOf(e.keyCode) !== -1)) {
+                return;
+            }
+            // Block: period, minus, plus, 'e', 'E', and anything not 0-9
+            if (e.key === '.' || e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+                e.preventDefault();
+                return;
+            }
+            // Block anything that is not a digit (0-9)
+            if (e.key.length === 1 && !/^[0-9]$/.test(e.key)) {
+                e.preventDefault();
+            }
+        });
+
+        // Sanitize on input (catches paste, autofill, IME, etc.)
+        input.addEventListener('input', function() {
+            var raw = this.value;
+            var sanitized = raw.replace(/[^0-9]/g, '');
+            if (raw !== sanitized) {
+                this.value = sanitized;
+            }
+        });
+
+        // Sanitize pasted content
+        input.addEventListener('paste', function(e) {
+            e.preventDefault();
+            var pasted = (e.clipboardData || window.clipboardData).getData('text');
+            var digits = pasted.replace(/[^0-9]/g, '');
+            if (digits) {
+                // Insert at cursor position
+                var start = this.selectionStart;
+                var end = this.selectionEnd;
+                var current = this.value;
+                this.value = current.substring(0, start) + digits + current.substring(end);
+            }
+        });
+
+        // Block drag-and-drop of non-numeric content
+        input.addEventListener('drop', function(e) {
+            e.preventDefault();
+            var dropped = e.dataTransfer.getData('text');
+            var digits = dropped.replace(/[^0-9]/g, '');
+            if (digits) {
+                this.value = digits;
+            }
+        });
+    });
 });
 
 // Enter key: block form submit, but check quantity vs minimum
@@ -541,7 +600,7 @@ document.getElementById('checkForm').addEventListener('keydown', function(e) {
 
 function checkQtyVsMin(input) {
     var val = input.value.trim();
-    var minVal = parseFloat(input.getAttribute('data-min-value')) || 0;
+    var minVal = parseInt(input.getAttribute('data-min-value'), 10) || 0;
     var itemName = input.getAttribute('data-item-name') || '';
     var td = input.closest('td');
     // Clear previous status classes
@@ -550,7 +609,14 @@ function checkQtyVsMin(input) {
         td.className = '';
         return;
     }
-    var qty = parseFloat(val);
+    // Reject non-integer values
+    if (!/^\d+$/.test(val)) {
+        td.className = 'status-empty';
+        input.style.border = '2px solid #c62828';
+        input.value = val.replace(/[^0-9]/g, '');
+        return;
+    }
+    var qty = parseInt(val, 10);
     if (isNaN(qty) || qty < 0) {
         td.className = 'status-empty';
         input.style.border = '2px solid #c62828';
@@ -568,7 +634,7 @@ function checkQtyVsMin(input) {
     }
 }
 
-// Item 3: Frontend validation — only check filled fields, reject non-numbers
+// Item 3: Frontend validation — only check filled fields, reject non-integers
 function validateForm() {
     var errors = [];
     var filled = 0;
@@ -580,7 +646,14 @@ function validateForm() {
             return; // empty is OK
         }
         filled++;
-        var num = parseFloat(val);
+        // Must be digits only (valid non-negative integer)
+        if (!/^\d+$/.test(val)) {
+            var itemName = input.getAttribute('data-item-name');
+            errors.push(itemName + ': only whole numbers allowed (no decimals, letters, or special characters)');
+            input.style.border = '2px solid #c62828';
+            return;
+        }
+        var num = parseInt(val, 10);
         if (isNaN(num) || num < 0) {
             var itemName = input.getAttribute('data-item-name');
             errors.push(itemName + ': invalid number');
