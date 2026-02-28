@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Register{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 60px auto;">
+    <div class="card">
+        <h2 style="text-align: center;">Register</h2>
+        <form method="POST">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label>Display Name</label>
+                <input type="text" name="display_name" required placeholder="e.g. ZHAO ZHIJUN">
+            </div>
+            <!-- Item 10: Email field -->
+            <div class="form-group">
+                <label>Email (for verification &amp; password reset)</label>
+                <input type="email" name="email" placeholder="e.g. your.name@inha.edu">
+            </div>
+            <div class="form-group">
+                <label>Group</label>
+                <select name="group_name" required>
+                    <option value="">-- Select group --</option>
+                    {% for t in teams_display %}
+                        <option value="{{ t.name }}">Team {{ t.key }}: {{ t.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">Register</button>
+        </form>
+        <p style="text-align: center; margin-top: 16px; font-size: 13px;">
+            Already have an account? <a href="{{ url_for('login') }}" style="color: #1a237e;">Login here</a>
+        </p>
+        <p style="text-align: center; font-size: 12px; color: #888; margin-top: 8px;">
+            Your account requires admin approval before you can log in.
+        </p>
+    </div>
+</div>
+{% endblock %}

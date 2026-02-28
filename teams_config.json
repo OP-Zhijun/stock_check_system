@@ -1,0 +1,12 @@
+{
+    "teams": [
+        {"key": "A", "name": "Dr.Lee/Zhijun", "members": []},
+        {"key": "B", "name": "Dr.Yoo/Dahee", "members": []},
+        {"key": "C", "name": "Junhyun/Thuan", "members": []},
+        {"key": "D", "name": "Dr.Arjaree/Nattha", "members": []},
+        {"key": "E", "name": "Dr.Kim/\uc724\ud604\uc2b9", "members": []}
+    ],
+    "rotation_start": "2026-02-26",
+    "rotation_interval_days": 14,
+    "rotation_order": ["A", "B", "C", "D", "E"]
+}

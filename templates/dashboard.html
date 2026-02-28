@@ -1,0 +1,603 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <h2 style="margin-bottom: 0;">Stock Check Dashboard</h2>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <form method="GET" style="display: flex; gap: 8px; align-items: center;">
+                <label style="font-size: 13px; font-weight: 500;">Date:</label>
+                <input type="date" name="date" value="{{ check_date }}" style="width: auto;" onchange="this.form.submit()">
+            </form>
+            {% if current_role == 'admin' %}
+                <a href="{{ url_for('export_csv', date=check_date) }}" class="btn btn-success btn-sm">Export CSV</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Summary Bar -->
+<div class="card" style="padding: 16px 24px;">
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; align-items: center;">
+        <span class="status-ok" style="padding: 6px 16px; border-radius: 8px; font-size: 14px;"><strong>{{ summary.ok }}</strong> OK</span>
+        <span class="status-low" style="padding: 6px 16px; border-radius: 8px; font-size: 14px;"><strong>{{ summary.low }}</strong> Low</span>
+        <span class="status-empty" style="padding: 6px 16px; border-radius: 8px; font-size: 14px;"><strong>{{ summary.empty }}</strong> Empty</span>
+        <!--{% if summary.unchecked > 0 %}-->
+        <!--    <span class="status-unknown" style="padding: 6px 16px; border-radius: 8px; font-size: 14px;"><strong>{{ summary.unchecked }}</strong> Unchecked</span>-->
+        <!--{% endif %}-->
+        <span style="background: #e8eaf6; padding: 6px 16px; border-radius: 8px; font-size: 14px; color: #1a237e;"><strong>{{ summary.groups_checked }}</strong>/5 groups checked</span>
+        <span style="border-left: 2px solid #ddd; height: 24px;"></span>
+        {% if summary.pending_orders > 0 %}
+            <span style="background: #ff9800; color: white; padding: 6px 16px; border-radius: 8px; font-size: 14px;"><strong>{{ summary.pending_orders }}</strong> Pending Orders</span>
+        {% endif %}
+        {% if summary.ordered > 0 %}
+            <span style="background: #2196f3; color: white; padding: 6px 16px; border-radius: 8px; font-size: 14px;"><strong>{{ summary.ordered }}</strong> Ordered</span>
+        {% endif %}
+        {% if summary.pending_orders == 0 and summary.ordered == 0 %}
+            <span style="color: #aaa; font-size: 13px;">No active orders</span>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Item 4: Status Legend at top (moved from bottom) -->
+<div class="card" style="padding: 12px 24px;">
+    <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+        <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
+            <strong style="font-size: 13px; color: #555;">Legend:</strong>
+            <span class="status-ok" style="padding: 4px 12px; border-radius: 6px; font-size: 12px;"><strong>OK</strong> &mdash; Meets minimum</span>
+            <span class="status-low" style="padding: 4px 12px; border-radius: 6px; font-size: 12px;"><strong>Low</strong> &mdash; Below minimum</span>
+            <span class="status-empty" style="padding: 4px 12px; border-radius: 6px; font-size: 12px;"><strong>Empty</strong> &mdash; Out of stock</span>
+            <!--<span class="status-unknown" style="padding: 4px 12px; border-radius: 6px; font-size: 12px;"><strong>-</strong> &mdash; Not checked</span>-->
+            <span style="padding: 4px 12px; border-radius: 6px; font-size: 12px; background: #e3f2fd; color: #1565c0;"><strong>&infin;</strong> &mdash; 9999 = Always OK</span>
+        </div>
+        <div style="text-align: right; font-size: 12px; color: #555; white-space: nowrap;">
+            <span id="kstTime" style="font-weight: 600; font-size: 14px; color: #1a237e;"></span> KST
+            <br>
+            <span id="kstDate" style="color: #666;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Rotation Schedule Banner -->
+<div class="card" style="padding: 14px 24px; border-left: 5px solid {% if rotation_group == current_group %}#4caf50{% else %}#1a237e{% endif %}; background: {% if rotation_group == current_group %}#e8f5e9{% else %}white{% endif %};">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <div>
+            <span style="font-size: 14px; font-weight: 600; color: {% if rotation_group == current_group %}#2e7d32{% else %}#1a237e{% endif %};">
+                Check Day ({{ rotation_check_date }}):
+            </span>
+            <span style="font-size: 14px; font-weight: 700; background: {% if rotation_group == current_group %}#4caf50{% else %}#1a237e{% endif %}; color: white; padding: 3px 12px; border-radius: 12px; margin-left: 4px;">
+                Team {{ duty_team_key }} ({{ rotation_group }})
+            </span>
+            {% if rotation_group == current_group %}
+                <span style="font-size: 12px; color: #2e7d32; margin-left: 6px; font-weight: 600;">It's your group's turn!</span>
+            {% endif %}
+        </div>
+        {% if next_check_date %}
+        <div style="font-size: 12px; color: #666;">
+            Next: <strong>{{ next_check_date }}</strong> &mdash; Team {{ next_team_key }} ({{ next_group }})
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<form method="POST" action="{{ url_for('submit_check') }}" id="checkForm" onsubmit="return validateForm()">
+    <input type="hidden" name="check_date" value="{{ check_date }}">
+
+    <div class="card" style="overflow-x: auto;">
+        <p style="text-align:center; font-size:13px; margin-bottom:10px; color:#666;">
+            Showing: <strong>{{ check_date }}</strong>{% if check_date == today %} (Today){% endif %}
+            &mdash; Only data submitted on this date is displayed.
+        </p>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30px;">#</th>
+                    <th style="min-width: 160px;">Item</th>
+                    <th style="min-width: 90px;">Minimum</th>
+                    {% for group in groups %}
+                        <th style="min-width: 130px; {% if group == rotation_group %}background: #2e7d32;{% endif %}">
+                            Team {{ get_team_key(group) }}: {{ group }}
+                            {% if group == rotation_group %}
+                                <span style="font-size: 10px; display: block; opacity: 0.9;">ON DUTY</span>
+                            {% endif %}
+                            {% if group == current_group %}
+                                <span style="font-size: 10px; display: block; opacity: 0.8;">(Your group)</span>
+                            {% endif %}
+                            {% if last_checked.get(group) %}
+                                <span style="font-size: 9px; display: block; opacity: 0.6;">Last: {{ last_checked[group] }}</span>
+                            {% else %}
+                                <span style="font-size: 9px; display: block; opacity: 0.4;">Never checked</span>
+                            {% endif %}
+                        </th>
+                    {% endfor %}
+                    <th style="min-width: 80px;">Order</th>
+                    <th style="min-width: 120px;">Request</th>
+                    <th style="min-width: 120px;">Decision</th>
+                    <th style="min-width: 120px;">Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set counter = {'n': 0} %}
+                {% for place, place_items in places %}
+                    <tr class="place-header">
+                        <td colspan="{{ groups|length + 7 }}">{{ place }}</td>
+                    </tr>
+                    {% for item in place_items %}
+                        {% set _ = counter.update({'n': counter.n + 1}) %}
+                        {# Determine worst status across all groups for this item #}
+                        {% set ns = namespace(worst='unknown', any_check=false) %}
+                        {% for group in groups %}
+                            {% set check = latest_checks.get((item.id, group)) %}
+                            {% if check %}
+                                {% set ns.any_check = true %}
+                                {% if check.status == 'empty' %}
+                                    {% set ns.worst = 'empty' %}
+                                {% elif check.status == 'low' and ns.worst != 'empty' %}
+                                    {% set ns.worst = 'low' %}
+                                {% elif check.status == 'ok' and ns.worst == 'unknown' %}
+                                    {% set ns.worst = 'ok' %}
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+                        <tr>
+                            <td>{{ counter.n }}</td>
+                            <td><strong>{{ item.item_name }}</strong></td>
+                            <td>{{ item.minimum }}</td>
+                            {% for group in groups %}
+                                {% set check = latest_checks.get((item.id, group)) %}
+                                {% if group == current_group %}
+                                    {# Item 3: Skip Dr.Lee items for non-Dr.Lee groups (make optional) #}
+                                    {% set is_drlee_item = (item.category == 'Dr.Lee') %}
+                                    {% set is_drlee_group = (current_group == 'Dr.Lee/Zhijun') %}
+                                    {% set is_required = is_drlee_group or not is_drlee_item %}
+                                    <td class="{% if check %}status-{{ check.status }}{% endif %}">
+                                        {% if can_edit %}
+                                        <!-- Item 1: number-only input -->
+                                        <div style="display:flex; align-items:center; gap:4px;">
+                                            <input type="number" name="qty_{{ item.id }}"
+                                                   id="qty_{{ item.id }}"
+                                                   value="{{ check.quantity if check else '' }}"
+                                                   placeholder="{{ item.min_value|int if item.min_value else '0' }}"
+                                                   min="0" step="1"
+                                                   data-item-name="{{ item.item_name }}"
+                                                   data-min-value="{{ item.min_value if item.min_value else 0 }}"
+                                                   style="width: 70px; padding: 4px 6px; font-size: 12px;">
+                                            <span style="font-size: 11px; color: #666;">{{ item.min_unit }}</span>
+                                        </div>
+                                        <!-- Item 2: Note button instead of inline input -->
+                                        <input type="hidden" name="note_{{ item.id }}" id="note_val_{{ item.id }}"
+                                               value="{{ check.note if check else '' }}">
+                                        <button type="button" class="note-btn"
+                                                id="note_btn_{{ item.id }}"
+                                                onclick="openNoteModal({{ item.id }}, '{{ item.item_name|e }}')"
+                                                style="font-size: 10px; padding: 1px 6px; margin-top: 2px; border: 1px solid #ccc; border-radius: 4px; background: {% if check and check.note %}#fff3cd{% else %}#f5f5f5{% endif %}; cursor: pointer; color: #555;">
+                                            {% if check and check.note %}Note*{% else %}+Note{% endif %}
+                                        </button>
+                                        {% else %}
+                                            {% if check %}
+                                                {% if check.quantity == '9999' %}<strong>&infin;</strong>
+                                                {% else %}<strong>{{ check.quantity }}</strong>
+                                                    {% if item.min_unit %}<small style="color:#888;">{{ item.min_unit }}</small>{% endif %}
+                                                {% endif %}
+                                                {% if check.note %}<br><small style="color: #666;">{{ check.note }}</small>{% endif %}
+                                                <br><small style="color: #999;">by {{ check.checked_by }}</small>
+                                            {% else %}
+                                                <span style="color: #ccc;">-</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                {% else %}
+                                    <td class="{% if check %}status-{{ check.status }}{% endif %}">
+                                        {% if check %}
+                                            {# Item A: Display infinity for 9999 #}
+                                            {% if check.quantity == '9999' %}
+                                                <strong>&infin;</strong>
+                                            {% else %}
+                                                <strong>{{ check.quantity }}</strong>
+                                                {% if item.min_unit %}<small style="color:#888;">{{ item.min_unit }}</small>{% endif %}
+                                            {% endif %}
+                                            {% if check.note %}<br><small style="color: #666;">{{ check.note }}</small>{% endif %}
+                                            <br><small style="color: #999;">by {{ check.checked_by }}</small>
+                                        {% else %}
+                                            <span style="color: #ccc;">-</span>
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                            {% endfor %}
+                            {# Item 8: Order column = OK / Need Order #}
+                            <td style="text-align: center;">
+                                {% set order_info = pending_orders.get(item.id) %}
+                                {% set order_active = order_info and order_info.status in ('pending', 'ordered') %}
+                                {% if ns.worst in ('low', 'empty') and ns.any_check and not order_active %}
+                                    <button type="button"
+                                            onclick="openOrderModal({{ item.id }}, '{{ item.item_name|e }}', '{{ item.minimum }}')"
+                                            style="background: #c62828; color: white; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; border: 2px solid #b71c1c; cursor: pointer;">
+                                        Need Order
+                                    </button>
+                                {% elif ns.worst in ('low', 'empty') and ns.any_check and order_active %}
+                                    <span style="background: #ef9a9a; color: #b71c1c; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">Need Order</span>
+                                {% elif ns.any_check and ns.worst == 'ok' %}
+                                    <span style="color: #2e7d32; font-size: 12px; font-weight: 600;">OK</span>
+                                {% else %}
+                                    <span style="color: #ddd;">-</span>
+                                {% endif %}
+                            </td>
+                            {# Pipeline Column 1: Request #}
+                            <td style="text-align: center; font-size: 11px;">
+                                {% if order_info %}
+                                    <span style="background: #ff9800; color: white; padding: 2px 8px; border-radius: 10px;">Pending</span>
+                                    <br><small style="color:#555;">Qty: <strong>{{ order_info.quantity }}</strong></small>
+                                    <br><small style="color:#888;">{{ order_info.requested_by }}</small>
+                                    <br><small style="color:#999;">{{ order_info.date }}</small>
+                                    {% if order_info.note %}<br><small style="color:#f57f17;">{{ order_info.note }}</small>{% endif %}
+                                {% else %}
+                                    <span style="color: #ddd;">-</span>
+                                {% endif %}
+                            </td>
+                            {# Pipeline Column 2: Decision #}
+                            <td style="text-align: center; font-size: 11px;">
+                                {% if order_info and order_info.status == 'ordered' %}
+                                    <span style="background: #2196f3; color: white; padding: 2px 8px; border-radius: 10px;">Ordered</span>
+                                    {% if order_info.ordered_by %}<br><small style="color:#1565c0;">{{ order_info.ordered_by }}</small>{% endif %}
+                                    {% if order_info.ordered_at %}<br><small style="color:#999;">{{ order_info.ordered_at }}</small>{% endif %}
+                                {% elif order_info and order_info.status in ('received',) %}
+                                    <span style="background: #2196f3; color: white; padding: 2px 8px; border-radius: 10px;">Ordered</span>
+                                    {% if order_info.ordered_by %}<br><small style="color:#1565c0;">{{ order_info.ordered_by }}</small>{% endif %}
+                                    {% if order_info.ordered_at %}<br><small style="color:#999;">{{ order_info.ordered_at }}</small>{% endif %}
+                                {% elif order_info and order_info.status == 'refused' %}
+                                    <span style="background: #795548; color: white; padding: 2px 8px; border-radius: 10px;">Refused</span>
+                                    {% if order_info.resolved_by %}<br><small style="color:#795548;">{{ order_info.resolved_by }}</small>{% endif %}
+                                    {% if order_info.resolved_at %}<br><small style="color:#999;">{{ order_info.resolved_at }}</small>{% endif %}
+                                {% elif order_info and order_info.status == 'pending' %}
+                                    <span style="color: #bbb; font-style: italic;">Waiting...</span>
+                                {% else %}
+                                    <span style="color: #ddd;">-</span>
+                                {% endif %}
+                            </td>
+                            {# Pipeline Column 3: Result #}
+                            <td style="text-align: center; font-size: 11px;">
+                                {% if order_info and order_info.status == 'received' %}
+                                    <span style="background: #4caf50; color: white; padding: 2px 8px; border-radius: 10px;">Received</span>
+                                    {% if order_info.resolved_by %}<br><small style="color:#2e7d32;">{{ order_info.resolved_by }}</small>{% endif %}
+                                    {% if order_info.resolved_at %}<br><small style="color:#999;">{{ order_info.resolved_at }}</small>{% endif %}
+                                {% elif order_info and order_info.status == 'cancelled' %}
+                                    <span style="background: #9e9e9e; color: white; padding: 2px 8px; border-radius: 10px;">Cancelled</span>
+                                    {% if order_info.resolved_by %}<br><small style="color:#666;">{{ order_info.resolved_by }}</small>{% endif %}
+                                    {% if order_info.resolved_at %}<br><small style="color:#999;">{{ order_info.resolved_at }}</small>{% endif %}
+                                {% elif order_info and order_info.status in ('pending', 'ordered') %}
+                                    <span style="color: #bbb; font-style: italic;">In progress...</span>
+                                {% elif order_info and order_info.status == 'refused' %}
+                                    <span style="color: #795548; font-size: 10px;">Closed</span>
+                                {% else %}
+                                    <span style="color: #ddd;">-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div style="text-align: center; margin: 20px 0;">
+        {% if can_edit %}
+        <button type="submit" class="btn btn-primary" style="padding: 12px 40px; font-size: 15px;">
+            Submit Stock Check for {{ check_date }}
+        </button>
+        <p style="font-size: 12px; color: #888; margin-top: 8px;">
+            Submitting as <strong>{{ current_user }}</strong> for group <strong>Team {{ get_team_key(current_group) }} ({{ current_group }})</strong>
+            {% if check_date != today %}
+                <br><span style="color: #f57f17;">(Submitting for: {{ check_date }}{% if check_date < today %} — past date, admin only{% endif %})</span>
+            {% endif %}
+        </p>
+        {% else %}
+        <p style="font-size: 14px; color: #c62828; margin-top: 8px; font-weight: 600;">
+            {% if today == rotation_check_date and current_group == rotation_group and check_date != today %}
+                Navigate to <a href="{{ url_for('dashboard', date=today) }}">today ({{ today }})</a> to submit your stock check.
+            {% elif today == rotation_check_date and current_group != rotation_group %}
+                View only — today's duty group is Team {{ duty_team_key }} ({{ rotation_group }}).
+            {% elif today != rotation_check_date and current_group == rotation_group %}
+                View only — your next duty day is {{ rotation_check_date }}.
+            {% elif today != rotation_check_date %}
+                View only — next duty day: {{ rotation_check_date }} (Team {{ duty_team_key }}: {{ rotation_group }}).
+            {% else %}
+                View only.
+            {% endif %}
+        </p>
+        {% endif %}
+    </div>
+</form>
+
+<!-- Previous Duty Day Records -->
+{% if prev_checks %}
+<div class="card" style="overflow-x: auto; margin-top: 8px; border-left: 5px solid #7986cb;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="margin: 0; color: #3949ab; font-size: 16px;">
+            Previous Duty: {{ prev_duty_date }} — Team {{ prev_duty_team_key }} ({{ prev_duty_group }})
+        </h3>
+        <button type="button" onclick="document.getElementById('prevTable').style.display = document.getElementById('prevTable').style.display === 'none' ? '' : 'none';"
+                class="btn btn-sm" style="background: #e8eaf6; color: #3949ab; font-size: 12px; border: 1px solid #c5cae9;">
+            Show / Hide
+        </button>
+    </div>
+    <table id="prevTable">
+        <thead>
+            <tr>
+                <th style="width: 30px;">#</th>
+                <th style="min-width: 160px;">Item</th>
+                <th style="min-width: 90px;">Minimum</th>
+                {% for group in groups %}
+                    <th style="min-width: 110px; {% if group == prev_duty_group %}background: #3949ab;{% endif %}">
+                        Team {{ get_team_key(group) }}
+                        {% if group == prev_duty_group %}
+                            <span style="font-size: 10px; display: block; opacity: 0.9;">WAS ON DUTY</span>
+                        {% endif %}
+                    </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% set pc = {'n': 0} %}
+            {% for place, place_items in places %}
+                <tr class="place-header">
+                    <td colspan="{{ groups|length + 3 }}">{{ place }}</td>
+                </tr>
+                {% for item in place_items %}
+                    {% set _ = pc.update({'n': pc.n + 1}) %}
+                    <tr>
+                        <td>{{ pc.n }}</td>
+                        <td>{{ item.item_name }}</td>
+                        <td>{{ item.minimum }}</td>
+                        {% for group in groups %}
+                            {% set check = prev_checks.get((item.id, group)) %}
+                            <td class="{% if check %}status-{{ check.status }}{% endif %}">
+                                {% if check %}
+                                    {% if check.quantity == '9999' %}
+                                        <strong>&infin;</strong>
+                                    {% else %}
+                                        <strong>{{ check.quantity }}</strong>
+                                        {% if item.min_unit %}<small style="color:#888;">{{ item.min_unit }}</small>{% endif %}
+                                    {% endif %}
+                                    {% if check.note %}<br><small style="color: #666;">{{ check.note }}</small>{% endif %}
+                                    <br><small style="color: #999;">{{ check.checked_by }}</small>
+                                {% else %}
+                                    <span style="color: #ccc;">-</span>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<!-- Order Request Modal (Item 9: moved to Status column) -->
+<div id="orderModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000;">
+    <div style="background:white; border-radius:12px; padding:24px; max-width:400px; width:90%; margin:auto; position:relative; top:50%; transform:translateY(-50%);">
+        <h3 style="margin-bottom:16px; color:#c62828;">Request Order</h3>
+        <form method="POST" action="{{ url_for('create_order_request') }}" onsubmit="return validateOrderForm()">
+            <input type="hidden" name="item_id" id="order_item_id">
+            <div class="form-group">
+                <label>Item</label>
+                <input type="text" id="order_item_name" disabled style="background: #f5f5f5;">
+            </div>
+            <div class="form-group">
+                <label>Minimum Required</label>
+                <input type="text" id="order_minimum" disabled style="background: #f5f5f5;">
+            </div>
+            <div class="form-group">
+                <label>Quantity to Order</label>
+                <input type="number" name="quantity_needed" id="order_qty" min="1" step="1" placeholder="e.g. 10" required>
+            </div>
+            <div class="form-group">
+                <label>Note (optional)</label>
+                <input type="text" name="note" placeholder="e.g. urgent">
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button type="button" class="btn btn-warning" onclick="closeOrderModal()">Cancel</button>
+                <button type="submit" class="btn btn-danger">Submit Order Request</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Item 2: Note Modal with localStorage draft -->
+<div id="noteModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000;">
+    <div style="background:white; border-radius:12px; padding:24px; max-width:400px; width:90%; margin:auto; position:relative; top:50%; transform:translateY(-50%);">
+        <h3 style="margin-bottom:16px; color:#1a237e;">Note for: <span id="noteItemName"></span></h3>
+        <div class="form-group">
+            <textarea id="noteTextarea" rows="4" placeholder="Enter note..." style="width:100%; padding:8px; font-size:13px;"></textarea>
+        </div>
+        <div id="noteDraftIndicator" style="display:none; font-size:11px; color:#f57f17; margin-bottom:8px;">Draft restored from local storage</div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button type="button" class="btn btn-warning" onclick="closeNoteModal()">Cancel</button>
+            <button type="button" class="btn" onclick="saveDraft()" style="background:#ff9800; color:white;">Save Draft</button>
+            <button type="button" class="btn btn-primary" onclick="confirmNote()">Confirm</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Live Seoul Clock (Asia/Seoul)
+function updateKST() {
+    var now = new Date();
+    var time = now.toLocaleString('en-GB', {timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false});
+    var date = now.toLocaleString('en-GB', {timeZone: 'Asia/Seoul', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'});
+    document.getElementById('kstTime').textContent = time;
+    document.getElementById('kstDate').textContent = date;
+}
+updateKST();
+setInterval(updateKST, 1000);
+
+// Order Modal
+// Order form validation — number only
+function validateOrderForm() {
+    var qty = document.getElementById('order_qty').value.trim();
+    if (qty === '' || isNaN(parseFloat(qty)) || parseFloat(qty) <= 0) {
+        alert('Quantity must be a valid number greater than 0.');
+        document.getElementById('order_qty').style.border = '2px solid #c62828';
+        return false;
+    }
+    return true;
+}
+
+function openOrderModal(itemId, itemName, minimum) {
+    document.getElementById('order_item_id').value = itemId;
+    document.getElementById('order_item_name').value = itemName;
+    document.getElementById('order_minimum').value = minimum;
+    document.getElementById('orderModal').style.display = 'block';
+}
+function closeOrderModal() {
+    document.getElementById('orderModal').style.display = 'none';
+}
+document.getElementById('orderModal').addEventListener('click', function(e) {
+    if (e.target === this) closeOrderModal();
+});
+
+// Item 2: Note Modal with localStorage
+var currentNoteItemId = null;
+
+function openNoteModal(itemId, itemName) {
+    currentNoteItemId = itemId;
+    document.getElementById('noteItemName').textContent = itemName;
+    // Load current value from hidden input
+    var currentVal = document.getElementById('note_val_' + itemId).value;
+    // Check for draft in localStorage
+    var draftKey = 'note_draft_' + itemId;
+    var draft = localStorage.getItem(draftKey);
+    if (draft !== null && draft !== '') {
+        document.getElementById('noteTextarea').value = draft;
+        document.getElementById('noteDraftIndicator').style.display = 'block';
+    } else {
+        document.getElementById('noteTextarea').value = currentVal;
+        document.getElementById('noteDraftIndicator').style.display = 'none';
+    }
+    document.getElementById('noteModal').style.display = 'block';
+    document.getElementById('noteTextarea').focus();
+}
+function closeNoteModal() {
+    document.getElementById('noteModal').style.display = 'none';
+    currentNoteItemId = null;
+}
+function saveDraft() {
+    if (currentNoteItemId === null) return;
+    var text = document.getElementById('noteTextarea').value;
+    localStorage.setItem('note_draft_' + currentNoteItemId, text);
+    document.getElementById('noteDraftIndicator').style.display = 'block';
+    document.getElementById('noteDraftIndicator').textContent = 'Draft saved!';
+    setTimeout(function() {
+        document.getElementById('noteDraftIndicator').textContent = 'Draft restored from local storage';
+    }, 1500);
+}
+function confirmNote() {
+    if (currentNoteItemId === null) return;
+    var text = document.getElementById('noteTextarea').value;
+    document.getElementById('note_val_' + currentNoteItemId).value = text;
+    // Clear draft
+    localStorage.removeItem('note_draft_' + currentNoteItemId);
+    // Update button label
+    var btn = document.getElementById('note_btn_' + currentNoteItemId);
+    if (text) {
+        btn.textContent = 'Note*';
+        btn.style.background = '#fff3cd';
+    } else {
+        btn.textContent = '+Note';
+        btn.style.background = '#f5f5f5';
+    }
+    closeNoteModal();
+}
+document.getElementById('noteModal').addEventListener('click', function(e) {
+    if (e.target === this) closeNoteModal();
+});
+
+// On page load: restore drafts from localStorage to button appearance
+document.addEventListener('DOMContentLoaded', function() {
+    var noteButtons = document.querySelectorAll('[id^="note_btn_"]');
+    noteButtons.forEach(function(btn) {
+        var itemId = btn.id.replace('note_btn_', '');
+        var draft = localStorage.getItem('note_draft_' + itemId);
+        if (draft !== null && draft !== '') {
+            btn.textContent = 'Draft*';
+            btn.style.background = '#ffcc80';
+        }
+    });
+});
+
+// Enter key: block form submit, but check quantity vs minimum
+document.getElementById('checkForm').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && e.target.type !== 'submit') {
+        e.preventDefault();
+        // If it's a quantity input, check vs minimum
+        if (e.target.type === 'number' && e.target.name && e.target.name.startsWith('qty_')) {
+            checkQtyVsMin(e.target);
+        }
+    }
+});
+
+function checkQtyVsMin(input) {
+    var val = input.value.trim();
+    var minVal = parseFloat(input.getAttribute('data-min-value')) || 0;
+    var itemName = input.getAttribute('data-item-name') || '';
+    var td = input.closest('td');
+    // Clear previous status classes
+    td.className = '';
+    if (val === '') {
+        td.className = '';
+        return;
+    }
+    var qty = parseFloat(val);
+    if (isNaN(qty) || qty < 0) {
+        td.className = 'status-empty';
+        input.style.border = '2px solid #c62828';
+        return;
+    }
+    input.style.border = '1px solid #ccc';
+    if (qty == 9999) {
+        td.className = 'status-ok';
+    } else if (qty <= 0) {
+        td.className = 'status-empty';
+    } else if (qty < minVal) {
+        td.className = 'status-low';
+    } else {
+        td.className = 'status-ok';
+    }
+}
+
+// Item 3: Frontend validation — only check filled fields, reject non-numbers
+function validateForm() {
+    var errors = [];
+    var filled = 0;
+    var inputs = document.querySelectorAll('input[type="number"][name^="qty_"]');
+    inputs.forEach(function(input) {
+        var val = input.value.trim();
+        if (val === '') {
+            input.style.border = '1px solid #ccc';
+            return; // empty is OK
+        }
+        filled++;
+        var num = parseFloat(val);
+        if (isNaN(num) || num < 0) {
+            var itemName = input.getAttribute('data-item-name');
+            errors.push(itemName + ': invalid number');
+            input.style.border = '2px solid #c62828';
+        } else {
+            input.style.border = '1px solid #ccc';
+        }
+    });
+    if (filled === 0) {
+        alert('Please enter at least one quantity before submitting.');
+        return false;
+    }
+    if (errors.length > 0) {
+        alert('Please fix the following before submitting:\n\n' + errors.join('\n'));
+        return false;
+    }
+    return true;
+}
+</script>
+{% endblock %}

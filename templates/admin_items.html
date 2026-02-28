@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Admin - Items{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Add New Item</h2>
+    <!-- Item 1: Split minimum into value + unit -->
+    <form method="POST" action="{{ url_for('add_item') }}" style="display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 140px;">
+            <label>Location</label>
+            <input type="text" name="stock_place" required placeholder="e.g. 5th floor Drawer">
+        </div>
+        <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 140px;">
+            <label>Item Name</label>
+            <input type="text" name="item_name" required placeholder="e.g. gloves(M)">
+        </div>
+        <div class="form-group" style="margin-bottom: 0; flex: 0 0 80px;">
+            <label>Min Value</label>
+            <input type="number" name="min_value" min="0" step="1" placeholder="4">
+        </div>
+        <div class="form-group" style="margin-bottom: 0; flex: 0 0 100px;">
+            <label>Min Unit</label>
+            <input type="text" name="min_unit" placeholder="boxes">
+        </div>
+        <div class="form-group" style="margin-bottom: 0; flex: 0 0 100px;">
+            <label>Category</label>
+            <input type="text" name="category" value="Common" placeholder="Common">
+        </div>
+        <button type="submit" class="btn btn-success" style="margin-bottom: 0;">Add Item</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Stock Items ({{ items|length }})</h2>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Order</th>
+                    <th>Location</th>
+                    <th>Item Name</th>
+                    <th>Min Value</th>
+                    <th>Min Unit</th>
+                    <th>Category</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}">
+                        <td>
+                            <input type="number" name="sort_order" value="{{ item.sort_order }}" style="width: 50px; padding: 3px; font-size: 12px;">
+                        </td>
+                        <td>
+                            <input type="text" name="stock_place" value="{{ item.stock_place }}" style="width: 130px; padding: 3px 6px; font-size: 12px;">
+                        </td>
+                        <td>
+                            <input type="text" name="item_name" value="{{ item.item_name }}" style="width: 160px; padding: 3px 6px; font-size: 12px;">
+                        </td>
+                        <td>
+                            <input type="number" name="min_value" value="{{ item.min_value if item.min_value is not none else '' }}" min="0" step="1" style="width: 60px; padding: 3px 6px; font-size: 12px;">
+                        </td>
+                        <td>
+                            <input type="text" name="min_unit" value="{{ item.min_unit if item.min_unit else '' }}" style="width: 80px; padding: 3px 6px; font-size: 12px;">
+                        </td>
+                        <td>
+                            <input type="text" name="category" value="{{ item.category }}" style="width: 80px; padding: 3px 6px; font-size: 12px;">
+                        </td>
+                        <td style="white-space: nowrap;">
+                            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('delete_item', item_id=item.id) }}" style="display: inline;"
+                          onsubmit="return confirm('Delete item {{ item.item_name }}?')">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                        </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

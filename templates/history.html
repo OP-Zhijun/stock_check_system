@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <h2 style="margin-bottom: 0;">Check History <small style="color:#888; font-size:14px;">({{ total }} records)</small></h2>
+        <form method="GET" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <select name="group" style="width: auto;" onchange="this.form.submit()">
+                <option value="">All Groups</option>
+                {% for t in teams_display %}
+                    <option value="{{ t.name }}" {% if group_filter == t.name %}selected{% endif %}>Team {{ t.key }}: {{ t.name }}</option>
+                {% endfor %}
+            </select>
+            <select name="date" style="width: auto;" onchange="this.form.submit()">
+                <option value="">All Dates</option>
+                {% for d in dates %}
+                    <option value="{{ d }}" {% if date_filter == d %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+            </select>
+            {% if group_filter or date_filter %}
+                <a href="{{ url_for('history') }}" class="btn btn-warning btn-sm">Clear</a>
+            {% endif %}
+        </form>
+        {% if current_role == 'admin' and total > 0 %}
+            <form method="POST" action="{{ url_for('delete_all_checks') }}"
+                  onsubmit="return confirm('DELETE ALL check history ({{ total }} records from all months)? This cannot be undone!')">
+                <button type="submit" class="btn btn-danger btn-sm" style="font-size: 12px;">Delete All History</button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+
+{% if current_role == 'admin' and (group_filter or date_filter) %}
+<div class="card" style="background: #fff3cd; border: 1px solid #ffeaa7;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <span style="font-size: 13px;">
+            <strong>Admin:</strong> Delete all {{ total }} records
+            {% if group_filter %}for <strong>{{ group_filter }}</strong>{% endif %}
+            {% if date_filter %}on <strong>{{ date_filter }}</strong>{% endif %}?
+        </span>
+        <form method="POST" action="{{ url_for('delete_checks_bulk') }}" style="display:inline;"
+              onsubmit="return confirm('Delete ALL {{ total }} records{% if group_filter %} for {{ group_filter }}{% endif %}{% if date_filter %} on {{ date_filter }}{% endif %}? This cannot be undone.')">
+            <input type="hidden" name="group_name" value="{{ group_filter }}">
+            <input type="hidden" name="check_date" value="{{ date_filter }}">
+            <button type="submit" class="btn btn-danger btn-sm">Delete All Shown</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div class="card" style="overflow-x: auto;">
+    {% if rows %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Location</th>
+                <th>Item</th>
+                <th>Minimum</th>
+                <th>Group</th>
+                <th>Checked By</th>
+                <th>Quantity</th>
+                <th>Status</th>
+                <th>Note</th>
+                <th>Timestamp (KST)</th>
+                {% if current_role == 'admin' %}
+                    <th>Action</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row.check_date }}</td>
+                <td>{{ row.stock_place }}</td>
+                <td>{{ row.item_name }}</td>
+                <td>{{ row.minimum }}</td>
+                <td>{{ row.group_name }}</td>
+                <td>{{ row.checked_by }}</td>
+                <td>
+                    {% if row.quantity == '9999' %}
+                        <strong>&infin;</strong>
+                    {% else %}
+                        <strong>{{ row.quantity }}</strong>
+                    {% endif %}
+                </td>
+                <td class="status-{{ row.status }}">{{ row.status|upper }}</td>
+                <td>{{ row.note }}</td>
+                <td style="font-size: 12px;">{{ row.created_at if row.created_at else '' }}</td>
+                {% if current_role == 'admin' %}
+                <td>
+                    <form method="POST" action="{{ url_for('delete_check', check_id=row.id, date=row.check_date) }}" style="display:inline;"
+                          onsubmit="return confirm('Delete this record?')">
+                        <button type="submit" class="btn btn-danger btn-sm" style="padding:2px 6px; font-size:11px;">Del</button>
+                    </form>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if total_pages > 1 %}
+    <div style="text-align: center; margin-top: 16px; display: flex; gap: 4px; justify-content: center; align-items: center;">
+        {% if page > 1 %}
+            <a href="{{ url_for('history', page=page-1, group=group_filter, date=date_filter) }}" class="btn btn-primary btn-sm">&laquo; Prev</a>
+        {% endif %}
+        <span style="padding: 4px 12px; font-size: 13px;">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}
+            <a href="{{ url_for('history', page=page+1, group=group_filter, date=date_filter) }}" class="btn btn-primary btn-sm">Next &raquo;</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+        <p style="text-align: center; color: #888; padding: 40px;">No check records found.</p>
+    {% endif %}
+</div>
+{% endblock %}
