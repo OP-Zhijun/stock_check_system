@@ -1,10 +1,10 @@
 {
     "teams": [
-        {"key": "A", "name": "Dr.Lee/Zhijun", "members": []},
-        {"key": "B", "name": "Dr.Yoo/Dahee", "members": []},
-        {"key": "C", "name": "Junhyun/Thuan", "members": []},
-        {"key": "D", "name": "Dr.Arjaree/Nattha", "members": []},
-        {"key": "E", "name": "Dr.Kim/\uc724\ud604\uc2b9", "members": []}
+        {"key": "A", "name": "Dr.Lee/Zhijun", "members": [], "tips_access": true},
+        {"key": "B", "name": "Dr.Yoo/Dahee", "members": [], "tips_access": false},
+        {"key": "C", "name": "Junhyun/Thuan", "members": [], "tips_access": false},
+        {"key": "D", "name": "Dr.Arjaree/Nattha", "members": [], "tips_access": false},
+        {"key": "E", "name": "Dr.Kim/\uc724\ud604\uc2b9", "members": [], "tips_access": false}
     ],
     "rotation_start": "2026-02-26",
     "rotation_interval_days": 14,

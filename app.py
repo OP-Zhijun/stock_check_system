@@ -24,6 +24,24 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 
+# ============================================================
+# Rate limiting (requires: pip install flask-limiter)
+# ============================================================
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(get_remote_address, app=app,
+                      default_limits=["200 per day", "50 per hour"],
+                      storage_uri="memory://")
+except ImportError:
+    class _NoopLimiter:
+        """Fallback when flask-limiter is not installed."""
+        def limit(self, *a, **kw):
+            def decorator(f):
+                return f
+            return decorator
+    limiter = _NoopLimiter()
+
 # Persistent random secret key
 _secret_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.secret_key')
 if os.path.exists(_secret_key_file):
@@ -76,6 +94,13 @@ def get_team_key_for_group(group_name):
         if t['name'] == group_name:
             return t['key']
     return '?'
+
+def has_tips_access(group_name):
+    """Check if a group has tips_access privilege (from teams_config.json)."""
+    for t in _teams_config['teams']:
+        if t['name'] == group_name:
+            return t.get('tips_access', False)
+    return False
 
 GROUPS = get_groups()
 
@@ -493,6 +518,7 @@ def inject_globals():
 # ============================================================
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
 def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -603,6 +629,7 @@ def verify_email(token):
 
 
 @app.route('/forgot_password', methods=['GET', 'POST'])
+@limiter.limit("3 per hour")
 def forgot_password():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
@@ -848,7 +875,7 @@ def dashboard():
                                check_date == today_kst().isoformat()
                            )),
                            can_edit_drlee=(session.get('role') == 'admin' or (
-                               session.get('group_name') == 'Dr.Lee/Zhijun' and
+                               has_tips_access(session.get('group_name', '')) and
                                today_kst().isoformat() == rotation_check_date and
                                check_date == today_kst().isoformat()
                            )))
@@ -873,9 +900,9 @@ def submit_check():
     duty_date = rot_info[1]
 
     # Non-admin: can only submit on their exact duty Thursday
-    # Exception: Dr.Lee/Zhijun members can submit Dr.Lee items on any duty Thursday
+    # Exception: groups with tips_access can submit Dr.Lee items on any duty Thursday
     if not is_admin:
-        is_drlee_member = (user_group == 'Dr.Lee/Zhijun')
+        is_drlee_member = has_tips_access(user_group)
         if today_str != duty_date:
             flash('Submissions are only open on duty Thursdays.', 'danger')
             return redirect(url_for('dashboard', date=check_date))
@@ -894,8 +921,8 @@ def submit_check():
     # Determine which team keys to scan
     if is_admin:
         team_keys = list(key_to_group.keys())  # All: A, B, C, D, E
-    elif user_group == 'Dr.Lee/Zhijun':
-        team_keys = list(key_to_group.keys())  # Dr.Lee can submit Tips for all groups
+    elif has_tips_access(user_group):
+        team_keys = list(key_to_group.keys())  # Tips-access group can submit Tips for all groups
     else:
         own_key = get_team_key_for_group(user_group)
         team_keys = [own_key]
@@ -1403,8 +1430,7 @@ def export_csv():
         all_rows.extend(rows)
 
     output = io.StringIO()
-    # Item 7: UTF-8 BOM
-    output.write('\ufeff')
+    # Item 7: UTF-8 BOM (handled by utf-8-sig encoding below)
     writer = csv.writer(output)
     writer.writerow(['Date', 'Group', 'Checked By', 'Location', 'Item', 'Minimum', 'Quantity', 'Status', 'Note', 'Timestamp (KST)'])
     for row in all_rows:
