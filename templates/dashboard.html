@@ -87,7 +87,9 @@
     <div class="card" style="overflow-x: auto;">
         <p style="text-align:center; font-size:13px; margin-bottom:10px; color:#666;">
             Showing: <strong>{{ check_date }}</strong>{% if check_date == today %} (Today){% endif %}
-            &mdash; Only data submitted on this date is displayed.
+            {% if display_date != check_date %}
+                &mdash; Displaying duty records from <strong>{{ display_date }}</strong> (Team {{ duty_team_key }})
+            {% endif %}
         </p>
         <table>
             <thead>
@@ -146,17 +148,20 @@
                             <td>{{ item.minimum }}</td>
                             {% for group in groups %}
                                 {% set check = latest_checks.get((item.id, group)) %}
-                                {% if group == current_group %}
-                                    {# Item 3: Skip Dr.Lee items for non-Dr.Lee groups (make optional) #}
-                                    {% set is_drlee_item = (item.category == 'Dr.Lee') %}
-                                    {% set is_drlee_group = (current_group == 'Dr.Lee/Zhijun') %}
-                                    {% set is_required = is_drlee_group or not is_drlee_item %}
-                                    <td class="{% if check %}status-{{ check.status }}{% endif %}">
-                                        {% if can_edit %}
-                                        <!-- Item 1: number-only input -->
+                                {% set tk = get_team_key(group) %}
+                                {% set editable = can_edit and (group == current_group or current_role == 'admin') %}
+                                {% set is_drlee_item = (item.category == 'Dr.Lee') %}
+                                {% if is_drlee_item %}
+                                    {% set drlee_editable = can_edit_drlee %}
+                                    {% set show_input = editable or drlee_editable %}
+                                {% else %}
+                                    {% set show_input = editable %}
+                                {% endif %}
+                                <td class="{% if check %}status-{{ check.status }}{% endif %}">
+                                    {% if show_input %}
                                         <div style="display:flex; align-items:center; gap:4px;">
-                                            <input type="number" name="qty_{{ item.id }}"
-                                                   id="qty_{{ item.id }}"
+                                            <input type="number" name="qty_{{ item.id }}_{{ tk }}"
+                                                   id="qty_{{ item.id }}_{{ tk }}"
                                                    value="{{ check.quantity if check else '' }}"
                                                    placeholder="{{ item.min_value|int if item.min_value else '0' }}"
                                                    min="0" step="1"
@@ -166,36 +171,18 @@
                                                    style="width: 70px; padding: 4px 6px; font-size: 12px;">
                                             <span style="font-size: 11px; color: #666;">{{ item.min_unit }}</span>
                                         </div>
-                                        <!-- Item 2: Note button instead of inline input -->
-                                        <input type="hidden" name="note_{{ item.id }}" id="note_val_{{ item.id }}"
+                                        <input type="hidden" name="note_{{ item.id }}_{{ tk }}" id="note_val_{{ item.id }}_{{ tk }}"
                                                value="{{ check.note if check else '' }}">
                                         <button type="button" class="note-btn"
-                                                id="note_btn_{{ item.id }}"
-                                                onclick="openNoteModal({{ item.id }}, '{{ item.item_name|e }}')"
+                                                id="note_btn_{{ item.id }}_{{ tk }}"
+                                                onclick="openNoteModal({{ item.id }}, '{{ tk }}', '{{ item.item_name|e }}')"
                                                 style="font-size: 10px; padding: 1px 6px; margin-top: 2px; border: 1px solid #ccc; border-radius: 4px; background: {% if check and check.note %}#fff3cd{% else %}#f5f5f5{% endif %}; cursor: pointer; color: #555;">
                                             {% if check and check.note %}Note*{% else %}+Note{% endif %}
                                         </button>
-                                        {% else %}
-                                            {% if check %}
-                                                {% if check.quantity == '9999' %}<strong>&infin;</strong>
-                                                {% else %}<strong>{{ check.quantity }}</strong>
-                                                    {% if item.min_unit %}<small style="color:#888;">{{ item.min_unit }}</small>{% endif %}
-                                                {% endif %}
-                                                {% if check.note %}<br><small style="color: #666;">{{ check.note }}</small>{% endif %}
-                                                <br><small style="color: #999;">by {{ check.checked_by }}</small>
-                                            {% else %}
-                                                <span style="color: #ccc;">-</span>
-                                            {% endif %}
-                                        {% endif %}
-                                    </td>
-                                {% else %}
-                                    <td class="{% if check %}status-{{ check.status }}{% endif %}">
+                                    {% else %}
                                         {% if check %}
-                                            {# Item A: Display infinity for 9999 #}
-                                            {% if check.quantity == '9999' %}
-                                                <strong>&infin;</strong>
-                                            {% else %}
-                                                <strong>{{ check.quantity }}</strong>
+                                            {% if check.quantity == '9999' %}<strong>&infin;</strong>
+                                            {% else %}<strong>{{ check.quantity }}</strong>
                                                 {% if item.min_unit %}<small style="color:#888;">{{ item.min_unit }}</small>{% endif %}
                                             {% endif %}
                                             {% if check.note %}<br><small style="color: #666;">{{ check.note }}</small>{% endif %}
@@ -203,8 +190,8 @@
                                         {% else %}
                                             <span style="color: #ccc;">-</span>
                                         {% endif %}
-                                    </td>
-                                {% endif %}
+                                    {% endif %}
+                                </td>
                             {% endfor %}
                             {# Item 8: Order column = OK / Need Order #}
                             <td style="text-align: center;">
@@ -282,12 +269,19 @@
     </div>
 
     <div style="text-align: center; margin: 20px 0;">
-        {% if can_edit %}
+        {% if can_edit or can_edit_drlee %}
         <button type="submit" class="btn btn-primary" style="padding: 12px 40px; font-size: 15px;">
             Submit Stock Check for {{ check_date }}
         </button>
         <p style="font-size: 12px; color: #888; margin-top: 8px;">
-            Submitting as <strong>{{ current_user }}</strong> for group <strong>Team {{ get_team_key(current_group) }} ({{ current_group }})</strong>
+            Submitting as <strong>{{ current_user }}</strong>
+            {% if current_role == 'admin' %}
+                <br><span style="color: #1a237e; font-weight: 600;">(Admin — all groups editable)</span>
+            {% elif can_edit %}
+                for group <strong>Team {{ get_team_key(current_group) }} ({{ current_group }})</strong>
+            {% else %}
+                <br><span style="color: #1565c0; font-weight: 600;">(Dr.Lee items only — your group is not on duty today)</span>
+            {% endif %}
             {% if check_date != today %}
                 <br><span style="color: #f57f17;">(Submitting for: {{ check_date }}{% if check_date < today %} — past date, admin only{% endif %})</span>
             {% endif %}
@@ -462,14 +456,15 @@ document.getElementById('orderModal').addEventListener('click', function(e) {
 
 // Item 2: Note Modal with localStorage
 var currentNoteItemId = null;
+var currentNoteTeamKey = null;
 
-function openNoteModal(itemId, itemName) {
+function openNoteModal(itemId, teamKey, itemName) {
     currentNoteItemId = itemId;
+    currentNoteTeamKey = teamKey;
     document.getElementById('noteItemName').textContent = itemName;
-    // Load current value from hidden input
-    var currentVal = document.getElementById('note_val_' + itemId).value;
-    // Check for draft in localStorage
-    var draftKey = 'note_draft_' + itemId;
+    var suffix = itemId + '_' + teamKey;
+    var currentVal = document.getElementById('note_val_' + suffix).value;
+    var draftKey = 'note_draft_' + suffix;
     var draft = localStorage.getItem(draftKey);
     if (draft !== null && draft !== '') {
         document.getElementById('noteTextarea').value = draft;
@@ -484,11 +479,13 @@ function openNoteModal(itemId, itemName) {
 function closeNoteModal() {
     document.getElementById('noteModal').style.display = 'none';
     currentNoteItemId = null;
+    currentNoteTeamKey = null;
 }
 function saveDraft() {
     if (currentNoteItemId === null) return;
+    var suffix = currentNoteItemId + '_' + currentNoteTeamKey;
     var text = document.getElementById('noteTextarea').value;
-    localStorage.setItem('note_draft_' + currentNoteItemId, text);
+    localStorage.setItem('note_draft_' + suffix, text);
     document.getElementById('noteDraftIndicator').style.display = 'block';
     document.getElementById('noteDraftIndicator').textContent = 'Draft saved!';
     setTimeout(function() {
@@ -497,12 +494,11 @@ function saveDraft() {
 }
 function confirmNote() {
     if (currentNoteItemId === null) return;
+    var suffix = currentNoteItemId + '_' + currentNoteTeamKey;
     var text = document.getElementById('noteTextarea').value;
-    document.getElementById('note_val_' + currentNoteItemId).value = text;
-    // Clear draft
-    localStorage.removeItem('note_draft_' + currentNoteItemId);
-    // Update button label
-    var btn = document.getElementById('note_btn_' + currentNoteItemId);
+    document.getElementById('note_val_' + suffix).value = text;
+    localStorage.removeItem('note_draft_' + suffix);
+    var btn = document.getElementById('note_btn_' + suffix);
     if (text) {
         btn.textContent = 'Note*';
         btn.style.background = '#fff3cd';
@@ -520,8 +516,8 @@ document.getElementById('noteModal').addEventListener('click', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
     var noteButtons = document.querySelectorAll('[id^="note_btn_"]');
     noteButtons.forEach(function(btn) {
-        var itemId = btn.id.replace('note_btn_', '');
-        var draft = localStorage.getItem('note_draft_' + itemId);
+        var suffix = btn.id.replace('note_btn_', '');
+        var draft = localStorage.getItem('note_draft_' + suffix);
         if (draft !== null && draft !== '') {
             btn.textContent = 'Draft*';
             btn.style.background = '#ffcc80';

@@ -700,11 +700,23 @@ def dashboard():
     items = db.execute('SELECT * FROM items ORDER BY sort_order').fetchall()
     check_date = request.args.get('date', today_kst().isoformat())
 
+    # Compute rotation info BEFORE data query so we can look up the duty date
+    rotation_info = get_rotation_info(check_date)
+    rotation_group = rotation_info[0]
+    rotation_check_date = rotation_info[1]
+    next_check_date = rotation_info[2]
+    next_group = rotation_info[3]
+    duty_team_key = rotation_info[4]
+    next_team_key = rotation_info[5]
+
+    # Use the duty date for data lookup (shows duty period records for non-duty dates)
+    display_date = rotation_check_date
+
     # Item 6: Use monthly table
-    table_name = get_checks_table(check_date)
+    table_name = get_checks_table(display_date)
     ensure_checks_table(db, table_name)
 
-    # Get only ONE record per item+group for the selected date (the latest)
+    # Get only ONE record per item+group for the duty date (the latest)
     latest_checks = {}
     for group in GROUPS:
         rows = db.execute(f'''
@@ -715,7 +727,7 @@ def dashboard():
                 WHERE group_name = ? AND check_date = ?
                 GROUP BY item_id
             ) latest ON c.id = latest.max_id
-        ''', (group, check_date)).fetchall()
+        ''', (group, display_date)).fetchall()
         for row in rows:
             key = (row['item_id'], group)
             latest_checks[key] = dict(row)
@@ -771,15 +783,6 @@ def dashboard():
                     best = row['last_date']
         last_checked[group] = best
 
-    # Rotation schedule
-    rotation_info = get_rotation_info(check_date)
-    rotation_group = rotation_info[0]
-    rotation_check_date = rotation_info[1]
-    next_check_date = rotation_info[2]
-    next_group = rotation_info[3]
-    duty_team_key = rotation_info[4]
-    next_team_key = rotation_info[5]
-
     # Previous duty day records
     interval_days = _teams_config['rotation_interval_days']
     prev_date_obj = date.fromisoformat(rotation_check_date) - timedelta(days=interval_days)
@@ -827,6 +830,7 @@ def dashboard():
                            last_checked=last_checked,
                            summary=summary,
                            check_date=check_date,
+                           display_date=display_date,
                            today=today_kst().isoformat(),
                            rotation_group=rotation_group,
                            rotation_check_date=rotation_check_date,
@@ -842,6 +846,11 @@ def dashboard():
                                today_kst().isoformat() == rotation_check_date and
                                session.get('group_name') == rotation_group and
                                check_date == today_kst().isoformat()
+                           )),
+                           can_edit_drlee=(session.get('role') == 'admin' or (
+                               session.get('group_name') == 'Dr.Lee/Zhijun' and
+                               today_kst().isoformat() == rotation_check_date and
+                               check_date == today_kst().isoformat()
                            )))
 
 
@@ -852,56 +861,76 @@ def dashboard():
 @app.route('/submit_check', methods=['POST'])
 @login_required
 def submit_check():
-    """UPSERT with validation: all items required (except Dr.Lee items for non-Dr.Lee groups)."""
+    """UPSERT with validation. Admin can submit for all groups; regular users for own group only."""
     db = get_db()
-    group_name = session.get('group_name', '')
     username = session.get('username', '')
+    is_admin = session.get('role') == 'admin'
     check_date = request.form.get('check_date', today_kst().isoformat())
+    user_group = session.get('group_name', '')
+    today_str = today_kst().isoformat()
+    rot_info = get_rotation_info(today_str)
+    duty_group = rot_info[0]
+    duty_date = rot_info[1]
 
-    # Non-admin: can only submit on their exact duty Thursday (today must BE that Thursday)
-    if session.get('role') != 'admin':
-        today_str = today_kst().isoformat()
-        rot_info = get_rotation_info(today_str)
-        duty_group = rot_info[0]
-        duty_date = rot_info[1]  # the actual Thursday date
+    # Non-admin: can only submit on their exact duty Thursday
+    # Exception: Dr.Lee/Zhijun members can submit Dr.Lee items on any duty Thursday
+    if not is_admin:
+        is_drlee_member = (user_group == 'Dr.Lee/Zhijun')
         if today_str != duty_date:
             flash('Submissions are only open on duty Thursdays.', 'danger')
             return redirect(url_for('dashboard', date=check_date))
-        if group_name != duty_group:
-            flash('Only the on-duty group can submit stock checks today.', 'danger')
-            return redirect(url_for('dashboard', date=check_date))
         if check_date != today_str:
-            flash('You can only submit for today\'s date on your duty day.', 'danger')
+            flash("You can only submit for today's date on your duty day.", 'danger')
+            return redirect(url_for('dashboard', date=check_date))
+        if user_group != duty_group and not is_drlee_member:
+            flash('Only the on-duty group can submit stock checks today.', 'danger')
             return redirect(url_for('dashboard', date=check_date))
 
     items = db.execute('SELECT * FROM items ORDER BY sort_order').fetchall()
 
-    # Item 3: Validate entered items — only reject if a value is entered but not a valid number.
-    # Empty fields are allowed (partial submission OK, same as V3).
-    # Dr.Lee items are skipped entirely for non-Dr.Lee groups.
-    is_drlee_group = (group_name == 'Dr.Lee/Zhijun')
+    # Build team key → group name mapping
+    key_to_group = {t['key']: t['name'] for t in _teams_config['teams']}
+
+    # Determine which team keys to scan
+    if is_admin:
+        team_keys = list(key_to_group.keys())  # All: A, B, C, D, E
+    elif user_group == 'Dr.Lee/Zhijun':
+        team_keys = list(key_to_group.keys())  # Dr.Lee can submit Tips for all groups
+    else:
+        own_key = get_team_key_for_group(user_group)
+        team_keys = [own_key]
+
     errors = []
-    entries = []
+    entries_by_group = {}  # group_name → list of tuples
 
-    for item in items:
-        is_drlee_item = (item['category'] == 'Dr.Lee')
-        if not is_drlee_group and is_drlee_item:
-            continue  # Non-Dr.Lee group: skip Dr.Lee items entirely
+    for tk in team_keys:
+        gname = key_to_group[tk]
+        is_drlee = (gname == 'Dr.Lee/Zhijun')
 
-        qty_str = request.form.get(f'qty_{item["id"]}', '').strip()
-        note = request.form.get(f'note_{item["id"]}', '').strip()
+        for item in items:
+            # Common items: only in user's own column (unless admin)
+            if not is_admin and item['category'] != 'Dr.Lee' and gname != user_group:
+                continue
+            # Non-duty group: only Dr.Lee items allowed (even in own column)
+            if not is_admin and user_group != duty_group and item['category'] != 'Dr.Lee':
+                continue
 
-        if not qty_str:
-            continue  # Empty is OK — partial submission allowed
+            qty_str = request.form.get(f'qty_{item["id"]}_{tk}', '').strip()
+            note = request.form.get(f'note_{item["id"]}_{tk}', '').strip()
 
-        if not is_valid_number(qty_str):
-            errors.append(f'{item["item_name"]}: not a valid number')
-            continue
+            if not qty_str:
+                continue
 
-        qty_val = float(qty_str)
-        min_val = item['min_value']
-        status = compute_status(qty_val, min_val)
-        entries.append((item['id'], group_name, username, qty_str, status, note, check_date))
+            if not is_valid_number(qty_str):
+                errors.append(f'{item["item_name"]} (Team {tk}): not a valid number')
+                continue
+
+            qty_val = float(qty_str)
+            status = compute_status(qty_val, item['min_value'])
+
+            if gname not in entries_by_group:
+                entries_by_group[gname] = []
+            entries_by_group[gname].append((item['id'], gname, username, qty_str, status, note, check_date))
 
     if errors:
         flash('Submission rejected. Fix the following: ' + '; '.join(errors[:10]), 'danger')
@@ -909,7 +938,7 @@ def submit_check():
             flash(f'...and {len(errors) - 10} more errors.', 'danger')
         return redirect(url_for('dashboard', date=check_date))
 
-    if not entries:
+    if not entries_by_group:
         flash('No items filled. Please enter at least one quantity.', 'warning')
         return redirect(url_for('dashboard', date=check_date))
 
@@ -917,19 +946,27 @@ def submit_check():
     table_name = get_checks_table(check_date)
     ensure_checks_table(db, table_name)
 
-    # Delete old records for this group+date first
-    db.execute(f'DELETE FROM "{table_name}" WHERE group_name = ? AND check_date = ?',
-               (group_name, check_date))
-
+    # UPSERT per group (only groups with entries get their data replaced)
     ts = now_kst()
-    for entry in entries:
-        db.execute(
-            f'INSERT INTO "{table_name}" (item_id, group_name, checked_by, quantity, status, note, check_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            entry + (ts,)
-        )
+    total_entries = 0
+    groups_updated = []
+
+    for gname, entries in entries_by_group.items():
+        db.execute(f'DELETE FROM "{table_name}" WHERE group_name = ? AND check_date = ?',
+                   (gname, check_date))
+        for entry in entries:
+            db.execute(
+                f'INSERT INTO "{table_name}" (item_id, group_name, checked_by, quantity, status, note, check_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                entry + (ts,)
+            )
+        total_entries += len(entries)
+        groups_updated.append(gname)
 
     db.commit()
-    flash(f'Stock check submitted ({len(entries)} items).', 'success')
+    if len(groups_updated) == 1:
+        flash(f'Stock check submitted ({total_entries} items for {groups_updated[0]}).', 'success')
+    else:
+        flash(f'Stock check submitted ({total_entries} items across {len(groups_updated)} groups).', 'success')
     return redirect(url_for('dashboard', date=check_date))
 
 
